@@ -20,9 +20,9 @@ on:
         default: true
       ENABLE_KPM:
         type: boolean
-        description: "启用 KPM？(non-GKI 需 KALLSYMS)"
+        description: "启用 KPM？(4.19 默认关；开会导致 access_ok 编译失败)"
         required: true
-        default: true
+        default: false
 
 env:
   DEFCONFIG: vendor/kona-perf_defconfig
@@ -357,6 +357,8 @@ jobs:
           scripts/config --file out/.config -e THREAD_INFO_IN_TASK
           if [ "$ENABLE_KPM" = "true" ]; then
             scripts/config --file out/.config -e KPM || true
+          else
+            scripts/config --file out/.config -d KPM || true
           fi
           if [ "$ENABLE_SUSFS" = "true" ]; then
             scripts/config --file out/.config -e KSU_SUSFS
