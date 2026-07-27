@@ -5,13 +5,13 @@ on:
     inputs:
       KERNEL_PROFILE:
         type: choice
-        description: "内核来源 (stock OOS/COS A14 优先用 meteoric14；自定义 ROM 用 los23)"
+        description: "内核来源 (默认 los23 最稳；库存 OOS 可试 meteoric14/oos)"
         required: true
-        default: meteoric14
+        default: los23
         options:
+          - los23
           - meteoric14
           - oos
-          - los23
           - stock_oss_a14
       ENABLE_SUSFS:
         type: boolean
@@ -126,7 +126,21 @@ jobs:
 
       - name: Clone Kernel
         run: |
-          git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
+          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_SOURCE" kernel
+          cd kernel
+          # Meteoric 等树可能带损坏的 KernelSU submodule / drivers/ksu 软链
+          if [ -L drivers/ksu ] || [ -d drivers/ksu ]; then
+            echo "Removing pre-existing drivers/ksu"
+            rm -rf drivers/ksu
+          fi
+          if [ -d KernelSU ] || [ -L KernelSU ]; then
+            echo "Removing pre-existing KernelSU"
+            rm -rf KernelSU
+          fi
+          # 去掉已失效的 ksu/kernelsu Kconfig source，交给后续 setup.sh 重新写入
+          if [ -f drivers/Kconfig ]; then
+            sed -i '/ksu\/Kconfig/d;/kernelsu\/Kconfig/d' drivers/Kconfig || true
+          fi
 
       - name: Fix LineageOS 23 Bugs
         if: env.APPLY_LOS_FIXES == 'true'
@@ -310,8 +324,21 @@ jobs:
       - name: Setup SukiSU-Ultra (non-GKI)
         run: |
           cd kernel
-          # 与已成功的 Simple 构建一致：builtin 自动处理 hooks；SUSFS 由上一步补丁合入
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+
+          # setup 成功时应有 drivers/kernelsu；部分 OEM 树只写了 source 行却没有目录
+          if [ ! -f drivers/kernelsu/Kconfig ] && [ -f KernelSU/kernel/Kconfig ]; then
+            rm -rf drivers/kernelsu
+            ln -sfn ../KernelSU/kernel drivers/kernelsu
+            echo "Linked drivers/kernelsu -> KernelSU/kernel"
+          fi
+          if [ ! -f drivers/kernelsu/Kconfig ]; then
+            echo "ERROR: drivers/kernelsu/Kconfig still missing"
+            ls -la KernelSU KernelSU/kernel drivers/kernelsu 2>&1 || true
+            rg -n "kernelsu|KernelSU" drivers/Kconfig || true
+            exit 1
+          fi
+          ls -la drivers/kernelsu | head
 
       - name: Build Kernel
         run: |
